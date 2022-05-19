@@ -27,11 +27,11 @@ In this way, training can occur in batches of any size, used in a script to term
 - Speed up factor can be controlled in real time using **+** to raise speed by 1x, **-** to lower by 1x, **RIGHT** to lower by 5x, and **LEFT** to raise by 5x.
 - The main metric for how much exploration has occurred is the **% of states explored**, which simply checks how many potential Q(state, action) values have been initialized as a rough proxy for training robustness.
 
-##Agents
+## Agents
 - **RandomLegalAgent**: takes a random action with equal probability, action as given by the GameBoard
 - **NearestTroopAgent**: an agent that defines state as **(nearest_card.name, (int) dist_to_tower)**, and prescribes an action based on its learned Q-values
 
-##Progress
+## Progress
 At the time of writing (5/19/22), the NearestTroopAgent has played 5,000 games and explored > 1.5% of all Q states, and is able to gather some key ideas about strategy:
 - Use of spell cards as instant reward (knows to drop *zap* on towers for high reward)
 - Use of cheap cards as counter (knows to use 2 and 3 cost goblins, archers, and bomber to counter cheap enemy troops)
