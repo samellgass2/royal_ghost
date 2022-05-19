@@ -320,6 +320,7 @@ class GameBoard:
         self.green_square = green_square
         self.elixir_count = 0
         self.evil_elixir_count = 0
+        self.verbose_mode = True
 
         red_img = pg.image.load("images/redsquare.jpeg")
         red_square = pg.sprite.Sprite(red_img)
@@ -643,6 +644,7 @@ class GameBoard:
                 elif dead_card.name == 'king tower':
                     self.evil_score = 3
                     self.evil_troop_damage += 1000
+            del dead_card
 
         self.dead = []
 

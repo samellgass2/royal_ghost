@@ -10,14 +10,16 @@ from board import *
 from clash_agents import *
 
 ###### GLOBAL PARAMS ######
-speedup_factor = 10
-EPISODES = 10
+speedup_factor = 100
+EPISODES = 50
 CURR_EPISODE = 0
+WINS = 0
+LOSSES = 0
 
 STATES_INIT = 0
 
-episode_name = "testing_parquet_reading.parquet"
-MODEL_FILE = None
+episode_name = "weights_toward_5096.parquet"
+MODEL_FILE = "weights_toward_5096.parquet"
 
 ###### GLOBAL PARAMS ######
 
@@ -29,6 +31,7 @@ def load_model():
     global CURR_EPISODE
     global EPISODES
     global episode_name
+
     print("Enter how many episodes have been run so far:")
     num_eps = int(input())
     CURR_EPISODE += num_eps
@@ -53,6 +56,7 @@ window = pg.window.Window(width=600, height=800, caption="Royal Ghost")
 board_backdrop = pg.resource.image("images/clash-board.jpeg")
 tile_size = (600 * 0.8) / 18
 
+####### INITIALIZE GAME AND AGENTS #########
 
 BOARD = GameBoard(tile_size, None)
 deck = [Barbarians((0,0), BOARD), Zap((0,0), BOARD), MiniPekka((0,0), BOARD), HogRider((0,0), BOARD),
@@ -61,16 +65,24 @@ BOARD.deck = deck
 [BOARD.draw_card() for i in range(4)]
 [BOARD.draw_evil_card() for j in range(4)]
 tile_view = False
+verbose_mode = True
 
 # AGENT = RandomLegalAgent(deck, deck, BOARD)
 AGENT = NearestTroopAgent(deck, deck, BOARD)
 EVIL_AGENT = NearestTroopAgent(deck, deck, BOARD)
 EVIL_AGENT.is_evil = True
 
+USE_COUNTS = {}
+for card in deck:
+    USE_COUNTS[card.name] = 0
+
+####### INITIALIZE GAME AND AGENTS #########
+
 if MODEL_FILE:
     AGENT.load_qvals(MODEL_FILE)
     EVIL_AGENT.load_qvals(MODEL_FILE)
 last_action = None
+
 
 def reset():
     """Resets board and game (but NOT agent), triggers next episode."""
@@ -78,6 +90,8 @@ def reset():
     global BOARD
     global AGENT
     global EVIL_AGENT
+    global WINS
+    global LOSSES
 
     # Remove previous schedule
     pg.clock.unschedule(BOARD.increment_elixir)
@@ -86,16 +100,28 @@ def reset():
     pg.clock.unschedule(dispatch_evil_agent)
 
     CURR_EPISODE += 1
+    if BOARD.won:
+        WINS += 1
+    else:
+        LOSSES += 1
     if CURR_EPISODE >= EPISODES:
         print("Training has ended after", EPISODES, "episodes.")
+        print("=================================")
+        print("Agent's use of each card was:")
+        total_use = sum(list(USE_COUNTS.values()))
+        for key in USE_COUNTS:
+            print("Agent used", key, round(100*USE_COUNTS[key]/total_use,2), "% of the time.")
 
         AGENT.export_agent(episode_name)
         print("Export completed.")
+        print("=================================")
+        print(" ")
         pg.app.EventLoop().exit()
         window.close()
 
     else:
         # Reset board and reference for agent
+        del BOARD
         BOARD = GameBoard(tile_size, deck)
         count_states(AGENT)
         AGENT.board = BOARD
@@ -152,11 +178,13 @@ def dispatch_agent(dt=None):
     state = nearest_troop_agent_state(False)
     action = AGENT.getAction(state)
     new_card = process_action(action)
-    if new_card:
-        print("Agent plays", new_card.name, "!")
-        BOARD.place_troop(new_card)
-    else:
-        print("Agent plays None.")
+    if verbose_mode:
+        if new_card:
+            print("Agent plays", new_card.name, "!")
+            USE_COUNTS[new_card.name] += 1
+            BOARD.place_troop(new_card)
+        else:
+            print("Agent plays None.")
 
     # Update the Q-values of the agent based on the results of its last action, now that the following state is known
     if BOARD.last_state and BOARD.last_action:
@@ -170,11 +198,12 @@ def dispatch_evil_agent(dt=None):
     state = nearest_troop_agent_state(True)
     action = EVIL_AGENT.getAction(state)
     new_card = process_action(action, is_evil=True)
-    if new_card:
-        print("ADVERSARY plays", new_card.name, "!")
-        BOARD.place_troop(new_card)
-    else:
-        print("ADVERSARY plays None.")
+    if verbose_mode:
+        if new_card:
+            print("ADVERSARY plays", new_card.name, "!")
+            BOARD.place_troop(new_card)
+        else:
+            print("ADVERSARY plays None.")
 
 
 def invert_location(location):
@@ -208,10 +237,23 @@ def ML_GUI(dt = None):
                                          anchor_y='center')
     EPI_NUM.draw()
 
-    state_count = pg.text.Label("Explored "+str(round(STATES_INIT*100,2))+" % of states.", font_size=12,
+    state_count = pg.text.Label("Explored "+str(round(STATES_INIT*100,2))+" % of states", font_size=12,
                                          x= 100, y=740, anchor_x='center',
                                          anchor_y='center')
     state_count.draw()
+
+    win_rate = pg.text.Label("Win Rate="+str(round(100*WINS/(WINS+LOSSES+0.001),2))+"%", font_size=10, x = 80, y=720,
+                             anchor_x='center',
+                             anchor_y='center'
+                             )
+    win_rate.draw()
+
+def SPEED_GUI(dt = None):
+    """Renders current simulation speed"""
+    SPEED = pg.text.Label(str(speedup_factor)+"x speed", font_size=10,
+                                         x= 500, y=770, anchor_x='center',
+                                         anchor_y='center')
+    SPEED.draw()
 
 
 @window.event
@@ -228,21 +270,56 @@ def on_draw():
         BOARD.win_condition()
         BOARD.render_hand()
         ML_GUI()
+        SPEED_GUI()
     else:
         reset()
 
 
 @window.event
 def on_key_press(symbol, modifiers):
-    """Event handler; currently just processes tile view."""
+    """Event handler; processes tile view and speed modifiers."""
+    global speedup_factor
+    global verbose_mode
     if symbol == pg.window.key.D:
         BOARD.tile_view = not BOARD.tile_view
+    elif symbol == pg.window.key.MINUS:
+        if speedup_factor > 1:
+            speedup_factor -= 1
+            reschedule_events()
+    elif symbol == pg.window.key.RIGHT:
+        speedup_factor += 5
+        reschedule_events()
+    elif symbol == pg.window.key.LEFT:
+        if speedup_factor > 5:
+            speedup_factor -= 5
+            reschedule_events()
+    elif symbol == pg.window.key.PLUS:
+        speedup_factor += 1
+        reschedule_events()
+    elif symbol == pg.window.key.V:
+        verbose_mode = not verbose_mode
+        BOARD.verbose_mode = not verbose_mode
 
+def reschedule_events():
+    pg.clock.unschedule(BOARD.increment_elixir)
+    pg.clock.unschedule(BOARD.update_state)
 
+    pg.clock.unschedule(dispatch_agent)
+    pg.clock.unschedule(dispatch_evil_agent)
+
+    pg.clock.schedule_interval(BOARD.increment_elixir, (1 / speedup_factor) * 2.8)
+    pg.clock.schedule_interval(BOARD.update_state, (1 / speedup_factor) * 1)
+
+    pg.clock.schedule_interval(dispatch_agent, (1 / speedup_factor) * 1)
+    pg.clock.schedule_interval(dispatch_evil_agent, (1 / speedup_factor) * 1)
+
+count_states(AGENT)
 pg.clock.schedule_interval(BOARD.increment_elixir, (1/speedup_factor)*2.8)
 pg.clock.schedule_interval(BOARD.update_state, (1/speedup_factor)*1)
 
 # Dispatch game state to NN / RL net
 pg.clock.schedule_interval(dispatch_agent, (1/speedup_factor)*1)
 pg.clock.schedule_interval(dispatch_evil_agent, (1/speedup_factor)*1)
+
+
 pg.app.run()
